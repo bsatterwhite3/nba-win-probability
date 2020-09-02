@@ -5,6 +5,9 @@ from nba_win_probability.win_probability import BrownianWinProbabilitySimulation
 
 
 def transform_data_for_analysis(df: pd.DataFrame):
+    """Prepares data for modelling procedure by calculating time information and
+        the score difference by minute.
+    """
     _df = df.copy()
     return (_df.pipe(add_time_information)
             .pipe(adjust_score_margin)
@@ -32,7 +35,7 @@ def adjust_score_margin(df: pd.DataFrame) -> pd.DataFrame:
         Additionally, this function casts SCOREMARGIN to a float instead of an object.
     """
     _df = df.copy()
-    _df.loc[(_df.PCTIMESTRING == '12:00') & (_df.PERIOD == 1), 'SCOREMARGIN'] = 0
+    _df.loc[(_df['PCTIMESTRING'] == '12:00') & (_df['PERIOD'] == 1), 'SCOREMARGIN'] = 0
     _df = _df[_df['SCOREMARGIN'].notnull()]
     _df.loc[_df.SCOREMARGIN == 'TIE', 'SCOREMARGIN'] = 0
 
@@ -67,28 +70,40 @@ def add_game_result_column(df: pd.DataFrame) -> pd.DataFrame:
     return _df
 
 
-def determine_game_result(score_margin: int):
-    if score_margin > 0:
+def determine_game_result(final_score_margin: int):
+    """Determines the game result by using the final scoring margin in a game."""
+    if final_score_margin > 0:
         return 1
-    elif score_margin < 0:
+    elif final_score_margin < 0:
         return 0
-    elif score_margin == 1:
+    else:
         return 'undefined'
 
 
 def get_moment_from_each_game(df: pd.DataFrame):
+    """Takes a random data point from each unique GAME_ID in the dataframe."""
     _df = df.copy()
     _df = _df[_df['TIME_ELAPSED'] < 48].groupby('GAME_ID').apply(lambda x: x.sample(1)).reset_index(drop=True)
     return _df
 
 
 def assign_win_probabilities(df: pd.DataFrame, brownian_win_probability: BrownianWinProbabilitySimulation):
+    """Assigns the estimated win probability to each row."""
     _df = df.copy()
-    _df['PROBA'] = _df.apply(lambda row: brownian_win_probability.estimate_home_win_probability(row['SCOREMARGIN'], 48 - int(row['MINUTE'])).estimated_win_probability,
-                             axis=1)
+    _df['PROBA'] = _df.apply(lambda row: get_win_probability(row, brownian_win_probability) ,axis=1)
+    return _df
 
 
 def get_win_probability(row, brownian_win_probability):
-    time_remaining = 48 - int(row['MINUTE'])
-    result = brownian_win_probability(row['SCOREMARGIN'], time_remaining)
+    """Estimates the win probability of a row by running a simulation based on the time remaining
+        and the score margin.
+    """
+    time_remaining = get_time_remaining(int(row['MINUTE']))
+    result = brownian_win_probability.estimate_home_win_probability(row['SCOREMARGIN'], time_remaining)
     return result.estimated_win_probability
+
+
+def get_time_remaining(time_elapsed: float):
+    """Calculates the time remaining in a 48 minute game."""
+    time_remaining = 48 - time_elapsed
+    return time_remaining
